@@ -1,32 +1,36 @@
 import React, { useState, useCallback } from "react";
 import { useDropzone, FileRejection, DropEvent } from "react-dropzone";
-import { CloudUpload, X } from "lucide-react";
+import { CloudUpload, Loader } from "lucide-react";
+import { processWhatsAppScreenshot, Message } from "@/utils/OCR";
+// import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface FileWithPreview extends File {
   preview: string;
 }
 
-interface HelloResponse {
-  name: string;
-}
-
-const ImageUploadComponent: React.FC = () => {
-  const [files, setFiles] = useState<FileWithPreview[]>([]);
-  const [apiResponse, setApiResponse] = useState<string | null>(null);
+const WhatsAppOCRComponent = () => {
+  const [file, setFile] = useState<FileWithPreview | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [processingStatus, setProcessingStatus] = useState<string>("");
+  const [error, setError] = useState<string>("");
 
   const onDrop = useCallback(
-    (
+    async (
       acceptedFiles: File[],
       fileRejections: FileRejection[],
       event: DropEvent
     ) => {
-      setFiles(
-        acceptedFiles.map((file) =>
-          Object.assign(file, {
-            preview: URL.createObjectURL(file),
-          })
-        )
-      );
+      setError("");
+      if (acceptedFiles.length > 0) {
+        const newFile = Object.assign(acceptedFiles[0], {
+          preview: URL.createObjectURL(acceptedFiles[0]),
+        });
+        setFile(newFile);
+        await processImage(newFile);
+      } else if (fileRejections.length > 0) {
+        setError("Please upload a valid image file (PNG or JPEG)");
+      }
     },
     []
   );
@@ -36,55 +40,47 @@ const ImageUploadComponent: React.FC = () => {
     accept: {
       "image/jpeg": [],
       "image/png": [],
-      "image/gif": [],
-      "image/webp": [],
     },
+    maxFiles: 1,
   });
 
-  const removeFile = (file: FileWithPreview) => {
-    const newFiles = [...files];
-    newFiles.splice(newFiles.indexOf(file), 1);
-    setFiles(newFiles);
+  const processImage = async (file: File) => {
+    setIsProcessing(true);
+    setProcessingStatus("Analyzing image...");
+    setMessages([]);
+
+    try {
+      const messages = await processWhatsAppScreenshot(file);
+      setMessages(messages);
+      console.log(
+        "Messages from processImage: ",
+        messages.map((message) => {
+          return { text: message.body, isReceiver: message.isReceiver };
+        })
+      );
+
+      if (messages.length === 0) {
+        setError(
+          "No messages could be detected in the image. Please try a clearer screenshot."
+        );
+      }
+    } catch (error) {
+      console.error("Error processing image:", error);
+      setError(
+        "Failed to process the image. Please try again with a different screenshot."
+      );
+    } finally {
+      setIsProcessing(false);
+      setProcessingStatus("");
+    }
   };
 
-  const sendToAPI = async () => {
-    const formData = new FormData();
-    files.forEach((file) => {
-      formData.append("images", file);
+  const formatMessageTime = (time: Date | null) => {
+    if (!time) return "Time unknown";
+    return time.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
     });
-
-    try {
-      const response = await fetch("/api/process-images", {
-        method: "POST",
-        body: formData,
-      });
-      if (response.ok) {
-        alert("Images uploaded successfully!");
-        setFiles([]);
-      } else {
-        alert("Failed to upload images");
-      }
-    } catch (error) {
-      console.error("Error:", error);
-      alert("An error occurred while uploading images");
-    }
-  };
-
-  const fetchHelloEndpoint = async () => {
-    try {
-      const response = await fetch("/api/hello");
-      console.log("response", response);
-      if (response.ok) {
-        const data: HelloResponse = await response.json();
-        console.log("data", data);
-        setApiResponse(data.name);
-      } else {
-        setApiResponse("Failed to fetch data");
-      }
-    } catch (error) {
-      console.error("Error:", error);
-      setApiResponse("An error occurred while fetching data");
-    }
   };
 
   return (
@@ -92,11 +88,11 @@ const ImageUploadComponent: React.FC = () => {
       <div className="mx-auto max-w-7xl sm:px-6 lg:px-8">
         <div className="relative isolate overflow-hidden bg-gray-900 px-6 py-24 shadow-2xl sm:rounded-3xl sm:px-24 xl:py-32">
           <h2 className="mx-auto max-w-2xl text-center text-3xl font-bold tracking-tight text-white sm:text-4xl">
-            Upload your images
+            Upload WhatsApp Screenshot
           </h2>
           <p className="mx-auto mt-2 max-w-xl text-center text-lg leading-8 text-gray-300">
-            Drag and drop your images here or click to select files. We accept
-            JPEG, PNG, GIF, and WebP formats.
+            Drag and drop your WhatsApp screenshot here. We'll extract the
+            messages for you.
           </p>
 
           <div className="mx-auto mt-10 max-w-md">
@@ -111,63 +107,61 @@ const ImageUploadComponent: React.FC = () => {
               <input {...getInputProps()} />
               <CloudUpload className="mx-auto h-12 w-12 text-white/70" />
               <p className="mt-2 text-sm text-gray-300">
-                Drag 'n' drop some images here, or click to select files
+                Drag 'n' drop a WhatsApp screenshot here, or click to select a
+                file
               </p>
             </div>
 
-            {files.length > 0 && (
+            {file && (
               <div className="mt-4">
                 <h4 className="text-sm font-medium text-white">
-                  Selected files:
+                  Uploaded screenshot:
                 </h4>
-                <ul className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-                  {files.map((file) => (
-                    <li key={file.name} className="relative">
-                      <img
-                        src={file.preview}
-                        alt={file.name}
-                        className="h-24 w-24 object-cover rounded-md"
-                        onLoad={() => {
-                          URL.revokeObjectURL(file.preview);
-                        }}
-                      />
-                      <button
-                        onClick={() => removeFile(file)}
-                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+                <div className="mt-2">
+                  <img
+                    src={file.preview}
+                    alt="WhatsApp screenshot"
+                    className="w-full h-auto object-contain rounded-md"
+                    onClick={async () => await processImage(file)}
+                    onLoad={() => {
+                      URL.revokeObjectURL(file.preview);
+                    }}
+                  />
+                </div>
               </div>
             )}
 
-            <button
-              onClick={sendToAPI}
-              disabled={files.length === 0}
-              className={`mt-6 w-full rounded-md px-3.5 py-2.5 text-sm font-semibold shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
-                files.length === 0
-                  ? "bg-gray-400 text-gray-700 cursor-not-allowed"
-                  : "bg-white text-gray-900 hover:bg-gray-100 focus-visible:outline-white"
-              }`}
-            >
-              Upload Images
-            </button>
+            {isProcessing && (
+              <div className="mt-4 flex items-center justify-center">
+                <Loader className="animate-spin h-8 w-8 text-white" />
+                <span className="ml-2 text-white">Processing image...</span>
+              </div>
+            )}
 
-            <button
-              onClick={fetchHelloEndpoint}
-              className="mt-4 w-full rounded-md bg-blue-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-            >
-              Fetch Hello Endpoint
-            </button>
-
-            {apiResponse && (
-              <div className="mt-4 p-4 bg-white/10 rounded-md">
-                <h4 className="text-sm font-medium text-white mb-2">
-                  API Response:
+            {messages.length > 0 && (
+              <div className="bg-white/10 rounded-lg p-4">
+                <h4 className="text-sm font-medium text-white mb-3">
+                  Extracted Messages ({messages.length}):
                 </h4>
-                <p className="text-sm text-gray-300">{apiResponse}</p>
+                <div className="space-y-2">
+                  {messages.map((message, index) => (
+                    <div
+                      key={index}
+                      className={`p-3 rounded-lg ${
+                        message.isReceiver
+                          ? "bg-blue-500/80 ml-auto max-w-[80%]"
+                          : "bg-green-500/80 mr-auto max-w-[80%]"
+                      }`}
+                    >
+                      <p className="text-sm text-white break-words">
+                        {message.body}
+                      </p>
+                      <p className="text-xs text-white/70 mt-1">
+                        {formatMessageTime(message.time)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -204,4 +198,4 @@ const ImageUploadComponent: React.FC = () => {
   );
 };
 
-export default ImageUploadComponent;
+export default WhatsAppOCRComponent;
