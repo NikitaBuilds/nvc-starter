@@ -53,7 +53,7 @@ const WhatsAppOCRComponent = () => {
     setUploadState((prev) => ({ ...prev, isProcessing: true, error: "" }));
 
     try {
-      const response = await fetch("/api/transcribe-whatsapp", {
+      const response = await fetch("/api/process-whatsapp", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
