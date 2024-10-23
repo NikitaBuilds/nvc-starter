@@ -1,19 +1,23 @@
-// First file: ~/utils/uploadthing.ts
+// @/utils/uploadthing.ts
 import { createUploadthing, type FileRouter } from "uploadthing/next-legacy";
 
 const f = createUploadthing();
 
-// FileRouter for your app, can contain multiple FileRoutes
 export const ourFileRouter = {
-  // Define as many FileRoutes as you like, each with a unique routeSlug
-  imageUploader: f({ image: { maxFileSize: "4MB" } }).onUploadComplete(
-    async ({ metadata, file }) => {
-      console.log("Upload complete for userId:", metadata);
-      console.log("file url", file.url);
-
-      return { fileUrl: file.url };
-    }
-  ),
+  imageUploader: f({
+    image: {
+      maxFileSize: "4MB",
+      maxFileCount: 10, // Allow up to 10 files
+    },
+  })
+    .middleware(({ files, req }) => {
+      // Optional: Add any middleware logic here
+      return {};
+    })
+    .onUploadComplete(async ({ metadata, file }) => {
+      console.log("Upload complete for file:", file.url);
+      return { url: file.url };
+    }),
 } satisfies FileRouter;
 
 export type OurFileRouter = typeof ourFileRouter;

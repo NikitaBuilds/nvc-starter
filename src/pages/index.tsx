@@ -1,8 +1,7 @@
 "use client";
 
 import DragAndDrop from "@/components/features/DragAndDrop";
-import Hero from "@/components/sections/Hero";
-import Newsletter from "@/components/sections/Newsletter";
+import Hero from "@/sections/Hero";
 
 export default function Example() {
   return (
