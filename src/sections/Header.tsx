@@ -10,12 +10,7 @@ const Header = () => {
   const router = useRouter();
 
   // Navigation items array
-  const navigationItems = [
-    { name: "Home", href: "/" },
-    { name: "About", href: "/about" },
-    { name: "Contact", href: "/contact" },
-    // Add more nav items here
-  ];
+  const navigationItems = [{ name: "Analysis", href: "/" }];
 
   // Get user initials from name or email
   const getUserInitials = () => {
