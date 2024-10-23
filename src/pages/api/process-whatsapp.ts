@@ -1,3 +1,5 @@
+export const maxDuration = 45; // This function can run for a maximum of 45 seconds
+
 import type { NextApiRequest, NextApiResponse } from "next";
 import { OpenAI } from "openai";
 import type {
