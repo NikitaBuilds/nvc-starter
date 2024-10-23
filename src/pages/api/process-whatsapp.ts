@@ -124,7 +124,7 @@ FINAL CHECK:
 Maintain original formatting and emoji where possible.`;
 
 export const config = {
-  maxDuration: 45,
+  maxDuration: 60,
   api: {
     bodyParser: {
       sizeLimit: "10mb",
