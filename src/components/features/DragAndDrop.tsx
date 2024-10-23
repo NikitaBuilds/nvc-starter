@@ -1,19 +1,94 @@
 import React, { useState, useCallback } from "react";
 import { useDropzone, FileRejection, DropEvent } from "react-dropzone";
-import { CloudUpload, Loader } from "lucide-react";
-import { processWhatsAppScreenshot, Message } from "@/utils/OCR";
-// import { Alert, AlertDescription } from "@/components/ui/alert";
+import { CloudUpload, Loader, MessageSquare } from "lucide-react";
+import { generateReactHelpers } from "@uploadthing/react";
+import type { OurFileRouter } from "@/utils/uploadthing";
+import { scaleImageDown } from "@/utils/scaleImage";
+import type { WhatsAppTranscription } from "@/types/whatsapp";
+
+const { useUploadThing: useUpload } = generateReactHelpers<OurFileRouter>();
 
 interface FileWithPreview extends File {
   preview: string;
 }
 
+interface UploadState {
+  isUploading: boolean;
+  isProcessing: boolean;
+  error: string;
+  originalSize: string;
+  scaledSize: string;
+}
+
 const WhatsAppOCRComponent = () => {
   const [file, setFile] = useState<FileWithPreview | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [processingStatus, setProcessingStatus] = useState<string>("");
-  const [error, setError] = useState<string>("");
+  const [uploadedImageUrl, setUploadedImageUrl] = useState<string>("");
+  const [transcription, setTranscription] =
+    useState<WhatsAppTranscription | null>(null);
+  const [uploadState, setUploadState] = useState<UploadState>({
+    isUploading: false,
+    isProcessing: false,
+    error: "",
+    originalSize: "",
+    scaledSize: "",
+  });
+
+  const { startUpload, isUploading } = useUpload("imageUploader", {
+    onClientUploadComplete: async (res) => {
+      if (res && res[0]) {
+        setUploadedImageUrl(res[0].url);
+        await processImage(res[0].url);
+      }
+    },
+    onUploadError: (error: Error) => {
+      console.error("Upload error:", error);
+      setUploadState((prev) => ({
+        ...prev,
+        error: "Upload failed: " + error.message,
+      }));
+    },
+  });
+
+  const processImage = async (imageUrl: string) => {
+    setUploadState((prev) => ({ ...prev, isProcessing: true, error: "" }));
+
+    try {
+      const response = await fetch("/api/transcribe-whatsapp", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ imageUrl }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to process image");
+      }
+
+      if (result.success && result.data) {
+        setTranscription(result.data);
+      } else {
+        throw new Error(result.error || "Failed to transcribe image");
+      }
+    } catch (err) {
+      setUploadState((prev) => ({
+        ...prev,
+        error: err instanceof Error ? err.message : "An unknown error occurred",
+      }));
+    } finally {
+      setUploadState((prev) => ({ ...prev, isProcessing: false }));
+    }
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return "0 Bytes";
+    const k = 1024;
+    const sizes = ["Bytes", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+  };
 
   const onDrop = useCallback(
     async (
@@ -21,18 +96,43 @@ const WhatsAppOCRComponent = () => {
       fileRejections: FileRejection[],
       event: DropEvent
     ) => {
-      setError("");
+      setUploadState((prev) => ({ ...prev, error: "" }));
+      setTranscription(null);
+
       if (acceptedFiles.length > 0) {
-        const newFile = Object.assign(acceptedFiles[0], {
-          preview: URL.createObjectURL(acceptedFiles[0]),
-        });
-        setFile(newFile);
-        await processImage(newFile);
+        const originalFile = acceptedFiles[0];
+        const originalSize = formatFileSize(originalFile.size);
+
+        try {
+          const scaledFile = await scaleImageDown(originalFile);
+          const scaledSize = formatFileSize(scaledFile.size);
+
+          const newFile = Object.assign(scaledFile, {
+            preview: URL.createObjectURL(scaledFile),
+          }) as FileWithPreview;
+
+          setFile(newFile);
+          setUploadState((prev) => ({
+            ...prev,
+            originalSize,
+            scaledSize,
+          }));
+
+          await startUpload([scaledFile]);
+        } catch (err) {
+          setUploadState((prev) => ({
+            ...prev,
+            error: "Error processing image: " + (err as Error).message,
+          }));
+        }
       } else if (fileRejections.length > 0) {
-        setError("Please upload a valid image file (PNG or JPEG)");
+        setUploadState((prev) => ({
+          ...prev,
+          error: "Please upload a valid image file (PNG or JPEG)",
+        }));
       }
     },
-    []
+    [startUpload]
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -43,44 +143,129 @@ const WhatsAppOCRComponent = () => {
     },
     maxFiles: 1,
   });
+  const renderTranscription = () => {
+    if (!transcription) return null;
 
-  const processImage = async (file: File) => {
-    setIsProcessing(true);
-    setProcessingStatus("Analyzing image...");
-    setMessages([]);
-
-    try {
-      const messages = await processWhatsAppScreenshot(file);
-      setMessages(messages);
-      console.log(
-        "Messages from processImage: ",
-        messages.map((message) => {
-          return { text: message.body, isReceiver: message.isReceiver };
-        })
-      );
-
-      if (messages.length === 0) {
-        setError(
-          "No messages could be detected in the image. Please try a clearer screenshot."
-        );
-      }
-    } catch (error) {
-      console.error("Error processing image:", error);
-      setError(
-        "Failed to process the image. Please try again with a different screenshot."
-      );
-    } finally {
-      setIsProcessing(false);
-      setProcessingStatus("");
-    }
+    return (
+      <div className="mt-6 bg-gray-800 rounded-lg overflow-hidden">
+        <div className="p-4 border-b border-gray-700">
+          <div className="flex items-center gap-2">
+            <MessageSquare className="h-5 w-5 text-white" />
+            <h3 className="text-lg font-semibold text-white">
+              Chat with: {transcription.chatName}
+            </h3>
+          </div>
+        </div>
+        <div className="p-4">
+          <div className="space-y-3 max-w-md mx-auto">
+            {transcription.messages.map((message, index) => (
+              <div
+                key={index}
+                className={`flex ${
+                  message.alignment === "right"
+                    ? "justify-end"
+                    : "justify-start"
+                }`}
+              >
+                <div
+                  className={`
+                    p-3 rounded-lg max-w-[85%]
+                    ${
+                      message.alignment === "right"
+                        ? "bg-blue-600"
+                        : "bg-gray-700"
+                    }
+                  `}
+                >
+                  {message.timestamp && (
+                    <p className="text-xs text-gray-300 mb-1">
+                      {message.timestamp}
+                    </p>
+                  )}
+                  <p className="text-white break-words">{message.content}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
   };
 
-  const formatMessageTime = (time: Date | null) => {
-    if (!time) return "Time unknown";
-    return time.toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+  const renderNVCAnalysis = () => {
+    if (!transcription?.nvcAnalysis) return null;
+
+    return (
+      <div className="mt-6 bg-gray-800 rounded-lg overflow-hidden">
+        <div className="p-4 border-b border-gray-700">
+          <h3 className="text-lg font-semibold text-white">
+            Communication Analysis
+          </h3>
+        </div>
+
+        <div className="p-4 space-y-6">
+          {/* Participant Scores */}
+          <div>
+            <h4 className="text-md font-medium text-white mb-3">
+              Participant NVC Scores
+            </h4>
+            <div className="space-y-2">
+              {Object.entries(transcription.nvcAnalysis.participantScores).map(
+                ([name, score]) => (
+                  <div key={name} className="bg-gray-700/50 p-3 rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-white">{name}</span>
+                      <span className="text-white font-medium">
+                        {score.score}/100
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-300">{score.explanation}</p>
+                  </div>
+                )
+              )}
+            </div>
+          </div>
+
+          {/* Message Rewrites */}
+          <div>
+            <h4 className="text-md font-medium text-white mb-3">
+              Suggested Message Improvements
+            </h4>
+            <div className="space-y-4">
+              {transcription.nvcAnalysis.messageRewrites.map(
+                (rewrite, index) => (
+                  <div key={index} className="bg-gray-700/50 p-3 rounded-lg">
+                    <div className="mb-2">
+                      <p className="text-red-400 line-through text-sm">
+                        {rewrite.original}
+                      </p>
+                      <p className="text-green-400 text-sm mt-1">
+                        {rewrite.rewritten}
+                      </p>
+                    </div>
+                    <p className="text-sm text-gray-300 mt-2">
+                      {rewrite.explanation}
+                    </p>
+                  </div>
+                )
+              )}
+            </div>
+          </div>
+
+          {/* Overall Analysis */}
+          <div>
+            <h4 className="text-md font-medium text-white mb-3">
+              Overall Analysis
+            </h4>
+            <div className="bg-gray-700/50 p-3 rounded-lg">
+              <p className="text-gray-300">
+                {transcription.nvcAnalysis.overallAnalysis}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -91,8 +276,8 @@ const WhatsAppOCRComponent = () => {
             Upload WhatsApp Screenshot
           </h2>
           <p className="mx-auto mt-2 max-w-xl text-center text-lg leading-8 text-gray-300">
-            Drag and drop your WhatsApp screenshot here. We'll extract the
-            messages for you.
+            Drag and drop your WhatsApp screenshot here. We'll automatically
+            scale it down and transcribe it.
           </p>
 
           <div className="mx-auto mt-10 max-w-md">
@@ -117,12 +302,17 @@ const WhatsAppOCRComponent = () => {
                 <h4 className="text-sm font-medium text-white">
                   Uploaded screenshot:
                 </h4>
+                {uploadState.originalSize && uploadState.scaledSize && (
+                  <p className="text-sm text-gray-300 mt-1">
+                    Original size: {uploadState.originalSize} → Scaled size:{" "}
+                    {uploadState.scaledSize}
+                  </p>
+                )}
                 <div className="mt-2">
                   <img
                     src={file.preview}
                     alt="WhatsApp screenshot"
                     className="w-full h-auto object-contain rounded-md"
-                    onClick={async () => await processImage(file)}
                     onLoad={() => {
                       URL.revokeObjectURL(file.preview);
                     }}
@@ -131,41 +321,24 @@ const WhatsAppOCRComponent = () => {
               </div>
             )}
 
-            {isProcessing && (
+            {(isUploading || uploadState.isProcessing) && (
               <div className="mt-4 flex items-center justify-center">
                 <Loader className="animate-spin h-8 w-8 text-white" />
-                <span className="ml-2 text-white">Processing image...</span>
+                <span className="ml-2 text-white">
+                  {isUploading ? "Uploading image..." : "Processing image..."}
+                </span>
               </div>
             )}
 
-            {messages.length > 0 && (
-              <div className="bg-white/10 rounded-lg p-4">
-                <h4 className="text-sm font-medium text-white mb-3">
-                  Extracted Messages ({messages.length}):
-                </h4>
-                <div className="space-y-2">
-                  {messages.map((message, index) => (
-                    <div
-                      key={index}
-                      className={`p-3 rounded-lg ${
-                        message.isReceiver
-                          ? "bg-blue-500/80 ml-auto max-w-[80%]"
-                          : "bg-green-500/80 mr-auto max-w-[80%]"
-                      }`}
-                    >
-                      <p className="text-sm text-white break-words">
-                        {message.body}
-                      </p>
-                      <p className="text-xs text-white/70 mt-1">
-                        {formatMessageTime(message.time)}
-                      </p>
-                    </div>
-                  ))}
-                </div>
+            {uploadState.error && (
+              <div className="mt-4 text-red-400 text-sm text-center">
+                {uploadState.error}
               </div>
             )}
+
+            {renderTranscription()}
+            {renderNVCAnalysis()}
           </div>
-
           <svg
             viewBox="0 0 1024 1024"
             aria-hidden="true"
