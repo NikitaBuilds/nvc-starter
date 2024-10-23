@@ -5,9 +5,9 @@ import Hero from "@/sections/Hero";
 
 export default function Example() {
   return (
-    <>
+    <div>
       <Hero />
       <DragAndDrop />
-    </>
+    </div>
   );
 }

@@ -10,7 +10,10 @@ const Header = () => {
   const router = useRouter();
 
   // Navigation items array
-  const navigationItems = [{ name: "Analysis", href: "/" }];
+  const navigationItems = [
+    { name: "WhatsApp", href: "/" },
+    { name: "Slack", href: "/slack" },
+  ];
 
   // Get user initials from name or email
   const getUserInitials = () => {
@@ -31,7 +34,6 @@ const Header = () => {
     <header className=" shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
-          {/* Logo/Brand */}
           <div className="flex-shrink-0 flex items-center w-36">
             <Link
               href="/"

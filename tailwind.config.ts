@@ -12,7 +12,7 @@ export default withUt({
     extend: {
       colors: {
         background: "var(--background)",
-        foreground: "var(--foreground)",
+        foreground: "var(--background)",
       },
     },
   },
